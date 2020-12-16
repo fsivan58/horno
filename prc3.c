@@ -11,21 +11,33 @@
 //#pragma intrinsyc(_delay)
 #define _XTAL_FREQ 20000000
 
-const unsigned char registrosTMR1 = 65535 - 34285; // 0.05s
-const unsigned char contadorTMR1 = 5;
+const unsigned  registrosTMR1 = 65535 - 34285; // 0.05s
+const unsigned  contadorTMR1 = 5;
 const unsigned limiteMonitor = 4;
 const unsigned limiteSensores = 20;
-unsigned char x;
+unsigned lastDial = 0;
+unsigned newDial = 0;
 unsigned cont;
 unsigned contMonitor;
 unsigned contSensores;
 unsigned short adc_valor;
-unsigned char adc_lectura=0;
+unsigned char adc_lectura=0; 
+
+// Dial
+unsigned valoresDial [10];
+unsigned indiceDial =0;
+
+//Lectura sensores
+float iluminancia = 0;
+unsigned tempExt = 0;
+unsigned tempInt = 0;
+float humedad = 0;
+
 
 void init_general()
 {  OSCCON = 0b00001000;
    init_uart();
-   init_adc();
+   init_adc(); 
    init_TMR1();
    INTCONbits.GIE=1;
    cont = 0;
@@ -88,11 +100,13 @@ void __interrupt() int_handler()
             cont = 0;
             contMonitor++;
             contSensores++;
+            lecturasignal();
+            
             // ADCON0bits.GO=1;
         }
-        if(contMonitor == limiteMonitor){ // 1 segundo
-            // actualizar tmp monitor
+        if(contMonitor == limiteMonitor){ // 1 segundo          
             contMonitor = 0;
+            updateMonitor(0);
         }
         if(contSensores == limiteSensores){ // 5 segundos
             // actualizar el valor de la consigna en el monitor
@@ -109,14 +123,115 @@ void __interrupt() int_handler()
     //    adc_lectura=1;
     //}
 }
+void lecturasignal (){
+    lastDial= newDial;
+    newDial= PORTBbits.RB4;
+   float Vnormalizado = normalizarDial();
+   if(Vnormalizado > 3){
+       updateMonitor(1);      
+   }  
+   else {
+    unsigned temperatura = normalizarTemperatura(Vnormalizado);
+    valoresDial[indiceDial]=temperatura;
+    indiceDial++;
+   }
+}
+
+
+float normalizarDial(){
+   unsigned max = 4095;
+   return (newDial/max)*3.8;
+}
+
+
+unsigned normalizarTemperatura(float v){
+    float max = 3;
+    return (v/max)*60;
+}
+
 void putch(char c)
 {
     while(!TXSTAbits.TRMT);
     TXREG=c;
 }
+
+void updateMonitor(unsigned apagado){
+    if(apagado == 0){
+  sensores();      
+  printf("Valor Dial: %d\r\n",adc_valor);//Valor Media Temperatura  
+  printf("Temperatura exterior: %d\r\n",tempExt);
+  printf("Temperatura interior: %d\r\n",tempInt);
+  printf("Luminosidad: %d\r\n",iluminancia);
+  printf("Humedad ambiente: %d\r\n",humedad);
+    }
+    else{
+        printf("Apagando el Horno \r\n");
+        apagarSistema();
+    }
+    
+}
+void sensores(){
+    sensorHumedad();
+    sensorIluminancia();
+    sensorTemperaturaExterior();
+    sensorTemperaturaInterior();
+}
+
+void sensorTemperaturaInterior (){
+   
+   unsigned tempIntLectura = PORTBbits.RB0;
+   unsigned max = 4095;
+   tempInt = (tempExtLectura/max)*60;
+   
+}
+
+void sensorTemperaturaExterior (){
+   
+   unsigned tempExtLectura = PORTBbits.RB1;
+   unsigned max = 4095;
+   tempExt = (tempExtLectura/max)*165-40;
+   
+}
+
+
+void sensorHumedad (){
+   
+   unsigned humedadLectura = PORTBbits.RB2;
+   unsigned max = 4095;
+   humedad = (humedadLectura/max)*100;
+   
+}
+
+void sensorIluminancia (){
+    
+   unsigned iluminanciaLectura = PORTBbits.RB3;
+   iluminancia = normalizarIluminancia(iluminanciaLectura); 
+   
+}
+
+float normalizarIluminancia(unsigned ilu){
+   unsigned max = 4095;
+   return ((ilu/max)*5)/3.8E-4;
+}
+
+
+void apagarSistema(){
+    
+}
+
+void initPortB(){
+    
+   TRISBbits.TRISB0 = 1;
+   TRISBbits.TRISB1 = 1;
+   TRISBbits.TRISB2 = 1;
+   TRISBbits.TRISB3 = 1;
+   TRISBbits.TRISB4 = 1;
+}
+
+
 void main(void)
 {  
-
+   //inicializar initportB
    while(1)
    {
        while(adc_lectura==0);
