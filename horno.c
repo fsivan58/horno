@@ -9,32 +9,33 @@
 //#pragma intrinsyc(_delay)
 #define _XTAL_FREQ 20000000
 
-const unsigned  registrosTMR1 = 65535 - 34285; // 0.05s
-const unsigned  contadorTMR1 = 5;
-const unsigned limiteMonitor = 4;
-const unsigned limiteSensores = 20;
-unsigned lastDial = 0;
-unsigned newDial = 0;
-unsigned cont;
-unsigned contMonitor;
-unsigned contSensores;
-unsigned contUpdate;
-unsigned consignaTemperatura;
-unsigned short adc_valor;
-unsigned char adc_lectura=0; 
+#define abs(x) (x < 0 ? -x : x)
+
+const int registrosTMR1 = 65535 - 34285; // 0.05s
+const int contadorTMR1 = 5;
+const int limiteMonitor = 4;
+const int limiteSensores = 20;
+const int maxAnalogRead = 1023;
+int lastDial = 0;
+int newDial = 0;
+int cont;
+int contMonitor;
+int contSensores;
+int contUpdate;
+int consignaTemperatura;
 
 // Dial
-unsigned valoresDial [10];
-unsigned indiceDial = 0;
-unsigned tamLecturas = 0;
+int valoresDial [10];
+int indiceDial = 0;
+int tamLecturas = 0;
 
 //Lectura sensores
 float iluminancia = 0;
-unsigned tempExt = 0;
-unsigned tempInt = 0;
+int tempExt = 0;
+int tempInt = 0;
 float humedad = 0;
 
-void init_uart ()
+void initUSART ()
 {
     TXSTAbits.BRGH = 0;
     BAUDCTLbits.BRG16 = 0;
@@ -50,7 +51,7 @@ void init_uart ()
     TXSTAbits.TXEN = 1;
 }
 
-void init_TMR1 ()
+void initTMR1 ()
 {   
     PIE1bits.TMR1IE= 1;
     T1CONbits.T1GINV = 1;
@@ -63,37 +64,32 @@ void init_TMR1 ()
     TMR1 = registrosTMR1; //Interrupcion cada 0.05 segundos
 }
 
-void init_adc(void)
-{   
-    ADCON0bits.ADCS1 = 1;
-    ADCON0bits.ADCS0 = 0;
-    ADCON0bits.ADON = 1;
-    ADCON0bits.CHS = 0;
-    ADCON0bits.CHS0 = 0;
-    ADCON0bits.CHS1 = 0;
-    ADCON0bits.CHS2 = 0;
-    ADCON0bits.CHS3 = 0;
-
-    ADCON1bits.ADFM = 1;
-    ADCON1bits.VCFG0 = 0;
-    ADCON1bits.VCFG1 = 0;
-
-    ADRESL = 0B00000000;
-
-    PIE1bits.ADIE = 1;
-    INTCONbits.PEIE = 1;
+void initTMR2 ()
+{
+    T2CONbits.TMR2ON = 1;
 }
 
-void init_PortB()
-{    
+void initPWM ()
+{
+    PR2 = 166;
+}
+
+void initPortB()
+{
+    // 9.1.1
     TRISBbits.TRISB0 = 1;
     TRISBbits.TRISB1 = 1;
     TRISBbits.TRISB2 = 1;
     TRISBbits.TRISB3 = 1;
     TRISBbits.TRISB4 = 1;
+    ANSELHbits.ANS8 = 1;
+    ANSELHbits.ANS9 = 1;
+    ANSELHbits.ANS10 = 1;
+    ANSELHbits.ANS11 = 1;
+    ANSELHbits.ANS12 = 1;
 }
 
-void init_PortC ()
+void initPortC ()
 {
     
 /*
@@ -106,93 +102,113 @@ void init_PortC ()
     TRISCbits.TRISC4 = 0;
 }
 
-void init_PWM ()
-{
-    PR2 = 166;
+void initADC ()
+{   
+    /*
+     *  sensor temperatura interior  1 - AN12 / RB0
+     *  sensor temperatura exterior  2 - AN10 / RB1
+     *  sensor humedad               3 - AN8  / RB2
+     *  sensor intensidad luminosa   4 - AN9  / RB3
+     *  potenciómetro consigna       5 - AN11 / RB4
+     */
+    ADCON0bits.ADCS1 = 1;
+    ADCON0bits.ADCS0 = 0;
+    ADCON0bits.ADON = 1;
+    ADCON1bits.ADFM = 1;
+    ADCON1bits.VCFG0 = 0;
+    ADCON1bits.VCFG1 = 0;
+    ADRESL = 0;
+    PIE1bits.ADIE = 1;  // Habilitacion de la interrupcion
+    PIR1bits.ADIF = 0;  // No se ha iniciado o completado la conversion
 }
 
-void init_TMR2 ()
-{
-    T2CONbits.TMR2ON = 1;
-}
-
-void init_general ()
+void initGeneral ()
 {  
     OSCCON = 0b00001000;
-    init_uart();
-    init_TMR1();
-    init_TMR2();
-    init_PWM();
-    init_PortB();
-    init_PortC();
+    initUSART();
+    initTMR1();
+    initTMR2();
+    initPWM();
+    initPortB();
+    initPortC();
+    initADC();
     INTCONbits.GIE = 1;
     INTCONbits.PEIE = 1;
 }
 
 float normalizarDial ()
 {
-    unsigned max = 3112;
-    return (newDial/max) * 3.8;
+    return (newDial/maxAnalogRead) * 3.8;
 }
 
-unsigned normalizarTemperatura(float v)
+float normalizarTemperatura (float v)
 {
-    float max = 3;
-    return (v/max) * 60;
+    return (v/maxAnalogRead) * 60;
 }
 
-unsigned calculoTempMedia()
+int calculoTempMedia ()
 {
-	unsigned suma = 0;
+	int i, suma = 0;
     float media;
-	int i;
 
-	for (i = 0; i < tamLecturas; i++){
-		suma = suma + valoresDial[i];
-	}
-
+	for (i = 0; i < tamLecturas; i++) {
+        suma = suma + valoresDial[i];
+    }
     media = suma / tamLecturas;
 	tamLecturas = 0;
 	indiceDial = 0;
 
-	return (unsigned) media;
+	return (int) media;
 }
 
-
-float normalizarIluminancia (unsigned iluminancia)
+float normalizarIluminancia (int iluminancia)
 {
-    unsigned max = 4095;
-    return ((iluminancia/max)*5) / 3.8E-4;
+    return ((iluminancia/maxAnalogRead)*5) / 3.8E-4;
+}
+
+int lecturaADC ()
+{
+    // esperar tiempo S&H - 3,8e-7
+    // Tcy = 2,7e-7 => vale con dos nop
+    NOP
+    NOP
+    ADCON0bits.GO = 1;
+    while (PIR1bits.ADIF != 1);
+    int value = ADRESH << 8;
+    value |= ADRESL;
+    PIR1bits.ADIF = 0;
+    return value;
 }
 
 void sensorTemperaturaInterior ()
-{   
-    unsigned tempIntLectura = PORTBbits.RB0;
-    unsigned max = 3071;
-    tempInt = (tempIntLectura/max) * 60;
+{
+    ADCON0bits.CHS = 0b1100;
+    int tempIntLectura = lecturaADC();
+    tempInt = (tempIntLectura/maxAnalogRead) * 60;
 }
 
 void sensorTemperaturaExterior ()
 {
-    unsigned tempExtLectura = PORTBbits.RB1;
-    unsigned max = 4095;
-    tempExt = (tempExtLectura/max) * 165 - 40;
+    ADCON0bits.CHS = 0b1010;
+    int tempExtLectura = lecturaADC();
+    tempExt = (tempExtLectura/maxAnalogRead) * 165 - 40;
 }
 
 void sensorHumedad ()
 {
-    unsigned humedadLectura = PORTBbits.RB2;
-    unsigned max = 4095;
-    humedad = (humedadLectura/max) * 100;
+    ADCON0bits.CHS = 0b1000;
+    int humedadLectura = lecturaADC();
+    humedad = (humedadLectura/maxAnalogRead) * 100;
 }
 
 void sensorIluminancia ()
 {
-    unsigned iluminanciaLectura = PORTBbits.RB3;
+    ADCON0bits.CHS = 0b1001;
+    int iluminanciaLectura = lecturaADC();
     iluminancia = normalizarIluminancia(iluminanciaLectura); 
 }
 
-void sensores()
+void leerSensores ()
 {
     sensorHumedad();
     sensorIluminancia();
@@ -205,12 +221,11 @@ void apagarSistema ()
     
 }
 
-void updateMonitor(unsigned apagado)
+void updateMonitor (int apagado)
 {
     if (apagado == 0) {
-        sensores();    
-		adc_valor = calculoTempMedia();
-        printf("Valor Dial: %d\r\n",adc_valor);//Valor Media Temperatura  
+        leerSensores();
+        printf("Valor Dial: %d\r\n", calculoTempMedia());
         printf("Temperatura exterior: %d\r\n",tempExt);
         printf("Temperatura interior: %d\r\n",tempInt);
         printf("Luminosidad: %d\r\n",iluminancia);
@@ -224,20 +239,28 @@ void updateMonitor(unsigned apagado)
 void lecturasignal ()
 {
     lastDial = newDial;
-    newDial = PORTBbits.RB4;
+    ADCON0bits.CHS = 0b1011;
+    newDial = lecturaADC();
     float Vnormalizado = normalizarDial();
-    if ((unsigned)(newDial - lastDial) < 0.5) {
+    if (abs(newDial - lastDial) < 0.5)
+    {
         contUpdate++;
-        if(contUpdate == limiteSensores) { // 5 segundos
+        if(contUpdate == limiteSensores)
+        { // 5 segundos
 			calculoTempMedia();
             contUpdate = 0;
         }
-    } else {
+    }
+    else
+    {
         contUpdate = 0;
-        if (Vnormalizado > 3) {
-        updateMonitor(1);
-        } else {
-            unsigned temperatura = normalizarTemperatura(Vnormalizado);
+        if (Vnormalizado > 3)
+        {
+            updateMonitor(1);
+        }
+        else
+        {
+            float temperatura = normalizarTemperatura(Vnormalizado);
             valoresDial[indiceDial] = temperatura;
 			if (indiceDial < 9)
 			{
@@ -245,14 +268,16 @@ void lecturasignal ()
 				tamLecturas++;
 			}
 			else
+            {
 				indiceDial = 0;
+            }
         }
     }
 }
 
-void __interrupt() int_handler()
+void __interrupt() intHandler()
 {
-    if (PIR1bits.TMR1IF){
+    if (PIR1bits.TMR1IF) {
         TMR1 = registrosTMR1;
         if(cont == contadorTMR1){ // 250 ms
             cont = 0;
@@ -271,12 +296,6 @@ void __interrupt() int_handler()
         cont++;
         PIR1bits.TMR1IF= 0;
     }
-}
-
-void putch(char c)
-{
-    while(!TXSTAbits.TRMT);
-    TXREG = c;
 }
 
 float calculoError ()
@@ -316,12 +335,12 @@ void controlTemperatura ()
     }
 }
 
-float ventilador (unsigned diff)
+float ventilador (int diff)
 {
-    unsigned max = 30;
-    unsigned maxCicloTrabajo = 75 - 25;
-    unsigned minCicloTrabajo = 25;
-    unsigned pwm;
+    int max = 30;
+    int maxCicloTrabajo = 75 - 25;
+    int minCicloTrabajo = 25;
+    int pwm;
     if (diff > 30)
         pwm = maxCicloTrabajo;
     else
@@ -329,9 +348,15 @@ float ventilador (unsigned diff)
     return pwm;
 }
 
+void putch(char c)
+{
+    while(!TXSTAbits.TRMT);
+    TXREG = c;
+}
+
 void main(void)
 {
-    init_general();
+    initGeneral();
     while (1)
     {
         controlTemperatura();
