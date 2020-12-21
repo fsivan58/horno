@@ -163,8 +163,6 @@ float normalizarIluminancia (int iluminancia)
 
 int lecturaADC ()
 {
-    // esperar tiempo S&H - 3,8e-7
-    // Tcy = 2,7e-7 => vale con dos nop
     asm("NOP");
     asm("NOP");
     ADCON0bits.GO = 1;
