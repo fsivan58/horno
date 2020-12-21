@@ -104,7 +104,7 @@ void initADC ()
      *  sensor temperatura exterior  2 - AN10 / RB1
      *  sensor humedad               3 - AN8  / RB2
      *  sensor intensidad luminosa   4 - AN9  / RB3
-     *  potenciómetro consigna       5 - AN11 / RB4
+     *  potenciometro consigna       5 - AN11 / RB4
      */
     ADCON0bits.ADCS1 = 1;
     ADCON0bits.ADCS0 = 0;
@@ -118,7 +118,7 @@ void initADC ()
     ANSELHbits.ANS8 = 1;
     ANSELHbits.ANS9 = 1;
     ANSELHbits.ANS10 = 1;
-    ANSELHbits.ANS11 = 0;
+    ANSELHbits.ANS11 = 1;
     ANSELHbits.ANS12 = 1;
 }
 
