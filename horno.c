@@ -242,7 +242,7 @@ void lecturaSignal ()
         contUpdate++;
         if(contUpdate == limiteSensores)
         {
-            consignaTemperatura = newDial;
+            consignaTemperatura = mediaDial;
             contUpdate = 0;
         }
     }
